@@ -97,6 +97,7 @@ func redeployServiceShouldRunAgainThenReset() bool {
 
 func main() {
 	// example: /redeploy/?service=tuerauf-prod&haproxy=tuerauf-haproxy&secret=secret_abc123
+	log.Printf("starting http server now...")
 	http.HandleFunc("/redeploy/", handler)
 	http.ListenAndServe(":8080", nil)
 }
