@@ -6,29 +6,18 @@ import (
 	"log"
 	"fmt"
 	"sync/atomic"
+"github.com/tutumcloud/go-tutum/tutum"
 )
 
 var redeployServiceIsRunning uint32 = 0
 var redeployServiceShouldRunAgain uint32 = 0
 
-func handler(responseWriter http.ResponseWriter, request *http.Request) {
+func redeployHandler(responseWriter http.ResponseWriter, request *http.Request) {
 
 	log.Printf("got request %s", request.URL.RawQuery)
 
 	serviceToRedeploy := request.URL.Query()["service"]
 	haproxy := request.URL.Query()["haproxy"][0]
-	secret := request.URL.Query()["secret"][0]
-
-
-	expectedSecret := os.Getenv("SEQREDEPLOY_SECRET")
-	if expectedSecret == "" {
-		log.Fatal("missing env SEQREDEPLOY_SECRET")
-	}
-
-	if expectedSecret != secret {
-		responseWriter.WriteHeader(http.StatusUnauthorized)
-		return
-	}
 
 	go triggerToRedeployServiceNowOrLater(serviceToRedeploy[0], haproxy)
 
@@ -95,9 +84,50 @@ func redeployServiceShouldRunAgainThenReset() bool {
 	return atomic.CompareAndSwapUint32(&redeployServiceShouldRunAgain, 1, 0)
 }
 
+type handler func(responseWriter http.ResponseWriter, request *http.Request)
+
+func checkSecret(pass handler) handler {
+	return func(responseWriter http.ResponseWriter, request *http.Request) {
+		secret := request.URL.Query()["secret"][0]
+
+		expectedSecret := os.Getenv("SEQREDEPLOY_SECRET")
+		if expectedSecret == "" {
+			http.Error(responseWriter, "missing env SEQREDEPLOY_SECRET", http.StatusUnauthorized)
+			return
+		}
+
+		if expectedSecret != secret {
+			http.Error(responseWriter, "bad secret", http.StatusUnauthorized)
+			return
+		}
+
+		pass(responseWriter, request)
+	}
+}
+
+func healthHandler(responseWriter http.ResponseWriter, request *http.Request) {
+
+	log.Printf("got health request %s", request.URL.RawQuery)
+
+	// do some tutum call to check health
+	serviceList, err := tutum.ListServices()
+	if err != nil {
+		log.Printf("tutum problem: %s", err)
+		http.Error(responseWriter, "tutum problem", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Fprintf(responseWriter, "ok. len(serviceList)=%d", len(serviceList.Objects))
+}
+
 func main() {
-	// example: /redeploy/?service=tuerauf-prod&haproxy=tuerauf-haproxy&secret=secret_abc123
 	log.Printf("starting http server now...")
-	http.HandleFunc("/redeploy/", handler)
+
+	// example: /redeploy/?service=tuerauf-prod&haproxy=tuerauf-haproxy&secret=secret_abc123
+	http.HandleFunc("/redeploy/", checkSecret(redeployHandler))
+
+	// example: /redeploy/health/?secret=secret_abc123
+	http.HandleFunc("/redeploy/health/", checkSecret(healthHandler))
+
 	http.ListenAndServe(":8080", nil)
 }
