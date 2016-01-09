@@ -138,11 +138,12 @@ func waitForCheckOk(httpCheckUri string, container tutum.Container, timeoutSecon
 	log.Printf("waitForCheckOk")
 	startedAt := getTimestampSeconds()
 
+	tcpPort := container.Container_ports[0].Outer_port
 	hostIp := os.Getenv("SEQREDEPLOY_HOSTIP")
 	if hostIp == "" {
 		hostIp = container.Private_ip
+		tcpPort = container.Container_ports[0].Inner_port
 	}
-	tcpPort := container.Container_ports[0].Outer_port
 	fullUrl := "http://" + hostIp + ":" + strconv.Itoa(tcpPort) + httpCheckUri
 
 	for {
